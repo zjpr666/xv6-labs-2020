@@ -1,5 +1,6 @@
-#include "user.h"
 #include "kernel/types.h"
+#include "user.h"
+
 
 void solve(int *p)
 {
