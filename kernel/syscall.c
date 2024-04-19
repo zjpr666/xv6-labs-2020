@@ -163,13 +163,14 @@ syscall(void)
   struct proc *p = myproc();
 
   num = p->trapframe->a7;
-  if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {    
-    p->trapframe->a0 = syscalls[num]();
+  if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
     /**
+     * 系统调用的返回值
      * 接收mask
      * 判断mask是否有效
      * 有效就打印相关参数
      */
+    p->trapframe->a0 = syscalls[num]();
     int mask = p->trace_mask;
     if((mask >> num) & 1)
     {
