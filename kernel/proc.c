@@ -696,3 +696,19 @@ procdump(void)
     printf("\n");
   }
 }
+
+//参考allocproc()函数，添加计数器就行
+uint64
+acquire_nproc(void)
+{
+  struct proc *p;
+  int count = 0;
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->state != UNUSED) {
+      count++;
+    }
+    release(&p->lock);
+  }
+  return count;
+}

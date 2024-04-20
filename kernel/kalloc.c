@@ -80,3 +80,20 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+//while循环获得链表的长度即可,乘以每页的字节数PGSIZE
+uint64
+acquire_freemem(void)
+{
+  struct run *r;
+  uint64 count = 0;
+  acquire(&kmem.lock);
+  r = kmem.freelist;
+  while(r)
+  {
+    r = r->next;
+    count++;
+  }
+  release(&kmem.lock);
+  return PGSIZE * count;
+}
