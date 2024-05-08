@@ -158,9 +158,11 @@ void            uartputc_sync(int);
 int             uartgetc(void);
 
 // vm.c
+void            vminit(pagetable_t*);
 void            kvminit(void);
 void            kvminithart(void);
-uint64          kvmpa(uint64);
+uint64          vmpa(pagetable_t, uint64);
+void            vmmap(pagetable_t, uint64, uint64, uint64, int);
 void            kvmmap(uint64, uint64, uint64, int);
 int             mappages(pagetable_t, uint64, uint64, uint64, int);
 pagetable_t     uvmcreate(void);
@@ -169,6 +171,7 @@ uint64          uvmalloc(pagetable_t, uint64, uint64);
 uint64          uvmdealloc(pagetable_t, uint64, uint64);
 #ifdef SOL_COW
 #else
+void            procfreekernelpgtbl(pagetable_t);
 int             uvmcopy(pagetable_t, pagetable_t, uint64);
 #endif
 void            uvmfree(pagetable_t, uint64);
