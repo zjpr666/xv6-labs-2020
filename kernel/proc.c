@@ -235,6 +235,7 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+  uvmcopy2kpgtbl(p->pagetable, p->kernel_pgtbl, 0, p->sz);   //映射到内核页表
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
@@ -258,11 +259,20 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
-    if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
+    uint64 newsize;
+    if((newsize = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+    //映射到内核页表中
+    if(uvmcopy2kpgtbl(p->pagetable, p->kernel_pgtbl, sz, n) != 0)
+    {
+      uvmdealloc(p->pagetable, newsize, sz);    //注意是从newsize往回缩减
+      return -1;
+    }
+    sz = newsize;   //分配成功
   } else if(n < 0){
-    sz = uvmdealloc(p->pagetable, sz, sz + n);
+    uvmdealloc(p->pagetable, sz, sz + n);   //释放用户页表内存
+    sz = vmdealloc(p->kernel_pgtbl, sz, sz + n); //同步缩小内核页表，不释放内存
   }
   p->sz = sz;
   return 0;
@@ -283,7 +293,9 @@ fork(void)
   }
 
   // Copy user memory from parent to child.
-  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+  // 将子进程的用户页表映射到子进程的内核页表，大小为p->sz
+  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0 || 
+     uvmcopy2kpgtbl(np->pagetable, np->kernel_pgtbl, 0, p->sz) < 0) {
     freeproc(np);
     release(&np->lock);
     return -1;
