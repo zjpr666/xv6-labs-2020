@@ -77,8 +77,34 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  if(which_dev == 2) {
+    // if(p->ticks > 0) { // 如果设定了时钟事件
+    //   p->tickscount++;
+    //   if(p->tickscount > p->ticks) {
+    //     // 时钟倒计时 -1 tick，如果已经到达或超过设定的 tick 数
+    //     if(p->alarmisoff == 0) { // 确保没有时钟正在运行
+    //       p->tickscount = 0;
+    //       // jump to execute alarm_handler
+    //       *p->alarm_trapframe = *p->trapframe; // backup trapframe
+    //       p->trapframe->epc = (uint64)p->handler;
+    //       p->alarmisoff = 1;
+    //     }
+    if(p->ticks != 0) { // 如果设定了时钟事件
+      if(--p->tickscount <= 0) { // 时钟倒计时 -1 tick，如果已经到达或超过设定的 tick 数
+        if(!p->alarmisoff) { // 确保没有时钟正在运行
+          p->tickscount = p->ticks;
+          // jump to execute alarm_handler
+          *p->alarm_trapframe = *p->trapframe; // backup trapframe
+          p->trapframe->epc = (uint64)p->handler;
+          p->alarmisoff = 1;
+        }
+        // 如果一个时钟到期的时候已经有一个时钟处理函数正在运行，则会推迟到原处理函数运行完成后的下一个 tick 才触发这次时钟
+      }
+    }
     yield();
+
+  }
+    
 
   usertrapret();
 }

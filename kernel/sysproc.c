@@ -96,3 +96,29 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64
+sys_sigalarm()
+{
+  int ticks;
+  uint64 handler;
+
+  if(argint(0, &ticks) < 0) return -1;      //通过接收第一个参数获得ticks
+  if(argaddr(1, &handler) < 0) return -1;   //通过接收第二个参数获得函数指针
+
+  struct proc *p = myproc();
+  p->ticks = ticks;
+  p->handler = (void*)handler;
+  p->tickscount = 0;  //几个ticks
+  
+  return 0;
+}
+
+uint64
+sys_sigreturn()
+{
+  struct proc *p = myproc();
+  *p->trapframe = *p->alarm_trapframe;
+  p->alarmisoff = 0;
+  return 0;
+}
