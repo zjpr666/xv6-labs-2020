@@ -106,7 +106,7 @@ struct proc {
 
   int ticks;           //报警间隔
   void (*handler)();           //报警处理函数指针
-  int tickscount;              //两次报警间的时间间隔
+  int tickscount;              //时间计数器
 
   struct trapframe *alarm_trapframe;    //复制一份寄存器用于恢复到中断之前
   int alarmisoff;             //判断是否已经有一个时钟回调正在执行且还未返回
