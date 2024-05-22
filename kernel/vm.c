@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -181,9 +183,9 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+      continue;
     if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
+      continue;  
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -315,9 +317,9 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
-    if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+      continue;
+    if((*pte & PTE_V) == 0) 
+      continue;
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
@@ -356,6 +358,11 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
 
+  //sbrkarg错误，由于调用walkaddr会访问未分配的page,需要进行判断然后分配页面
+  if(isLazy_alloc(dstva)) 
+  {
+    lazy_alloc(dstva);
+  }
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
@@ -381,6 +388,14 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
   uint64 n, va0, pa0;
 
+  //sbrkarg错误，由于调用walkaddr会访问未分配的page,需要进行判断然后分配页面
+  /**
+   * 判断是不是lazy alloc，是就需要分配相应的page
+  */
+  if(isLazy_alloc(srcva)) 
+  {
+    lazy_alloc(srcva);
+  }
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
     pa0 = walkaddr(pagetable, va0);
@@ -438,5 +453,49 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return 0;
   } else {
     return -1;
+  }
+}
+
+/**
+ * 判断是不是懒分配
+ * 条件1：va < p->sz返回1，否则返回0
+ * 条件2：栈下面的guard页面是不能被映射的，栈是向下增长的，sp向下取整和va向上取整相等说明va在guard页面上
+ * 条件3：页表项存在且有效则说明不是lazy alloc
+*/
+int isLazy_alloc(uint64 va) {
+  pte_t *pte;
+  struct proc *p = myproc();
+  if(va >= p->sz) //条件1
+  {
+    return 0;
+  }
+  if(PGROUNDUP(va) == PGROUNDDOWN(p->trapframe->sp)) //条件2
+  { 
+    return 0;
+  }
+  if(((pte = walk(p->pagetable, va, 0))!=0) && ((*pte & PTE_V)!=0)) //条件3
+  {
+    return 0;
+  }
+  return 1;
+}
+
+
+//分配物理内存并映射到va(向下取整)
+void lazy_alloc(uint64 va)
+{
+  struct proc* p = myproc();
+  char* mem = kalloc();
+  if(mem == 0)
+  {
+    p->killed = 1;
+  } else {
+    memset((void*)mem, 0, PGSIZE);
+    va = PGROUNDDOWN(va);
+    if(mappages(p->pagetable, va, PGSIZE, (uint64)mem, PTE_W|PTE_R|PTE_X|PTE_U) != 0)
+    {
+      kfree((void*)mem);
+      p->killed = 1;
+    }
   }
 }
