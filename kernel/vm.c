@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -311,7 +313,6 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -319,19 +320,16 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
+    *pte = (*pte & ~PTE_W) | PTE_COW;                     //修改标志位
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0)  //映射到父进程的物理内存
       goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
-    }
+    incpgref((void*)pa);                                  //引用计数+1
   }
   return 0;
 
  err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
+  uvmunmap(new, 0, i / PGSIZE, 0);
   return -1;
 }
 
@@ -357,6 +355,9 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   uint64 n, va0, pa0;
 
   while(len > 0){
+    if(isCowpage(dstva))
+      cowcopy(dstva);
+
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
@@ -439,4 +440,46 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// 判断地址va指向的页是否是懒复制页
+int isCowpage(uint64 va) {
+  struct proc *p = myproc();
+  pte_t *pte;
+
+  if(va >= p->sz)   //需要先检测这个是否在进程的内存范围里，不然下面的walk会触发panic
+    return 0;
+  pte = walk(p->pagetable, va, 0);  //参考walkaddr的写法
+  if(pte == 0)                      //页是否能成功获取到
+    return 0;
+  if((*pte & PTE_V) == 0)           //页是否存在
+    return 0;
+  if((*pte & PTE_COW) == 0)         //页是否是懒复制页
+    return 0;
+  return 1;
+}
+
+// 实复制一个懒复制页，并重新映射为可写
+int cowcopy(uint64 va) {
+  pte_t *pte;
+  struct proc *p = myproc();
+
+  pte = walk(p->pagetable, va, 0);
+  if(pte == 0)
+    panic("cowcopy: walk");
+  
+  // 调用 kalloc.c 中的 cowkalloc 方法，复制页
+  // (如果懒复制页的引用已经为 1，则不需要重新分配和复制内存页，只需清除 PTE_COW 标记并标记 PTE_W 即可)
+  uint64 pa = PTE2PA(*pte);
+  uint64 new = (uint64)cowkalloc((void*)pa); // 将一个懒复制的页引用变为一个实复制的页
+  if(new == 0)
+    return -1;
+  
+  // 重新映射为可写，并清除 PTE_COW 标记
+  uint64 flags = (PTE_FLAGS(*pte) | PTE_W) & ~PTE_COW;
+  uvmunmap(p->pagetable, PGROUNDDOWN(va), 1, 0);
+  if(mappages(p->pagetable, va, 1, new, flags) == -1) {
+    panic("cowcopy: mappages");
+  }
+  return 0;
 }

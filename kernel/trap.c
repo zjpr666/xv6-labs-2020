@@ -67,6 +67,10 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if((r_scause() == 13 || r_scause() == 15) && isCowpage(r_stval())) {
+    // isCowpage(r_stval())不能写在这个里面，不是COW中断不能进入这个判断
+    if(cowcopy(r_stval()) == -1) // 如果内存不足，则杀死进程
+      p->killed = 1;       
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());

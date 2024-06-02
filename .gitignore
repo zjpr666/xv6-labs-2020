@@ -3,6 +3,7 @@ _*
 *.o
 *.d
 *.asm
+*.json
 *.sym
 *.img
 vectors.S
