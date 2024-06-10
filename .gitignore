@@ -4,6 +4,7 @@ _*
 *.d
 *.asm
 *.sym
+*.json
 *.img
 vectors.S
 bootblock
