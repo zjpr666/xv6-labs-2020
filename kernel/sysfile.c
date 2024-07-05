@@ -484,3 +484,93 @@ sys_pipe(void)
   }
   return 0;
 }
+
+uint64
+sys_mmap(void)
+{
+  int addr, sz, prot, flags, fd, offset;
+  struct file *f;
+
+  if(argint(0, &addr) < 0 || argint(1, &sz) < 0 || argint(2, &prot) < 0
+     || argint(3, &flags) < 0 || argfd(4, &fd, &f) < 0 || argint(5, &offset) < 0 || sz == 0)
+      return -1;
+    
+  if((!f->readable && (prot & (PROT_READ)))
+     || (!f->writable && (prot & PROT_WRITE) && !(flags & MAP_PRIVATE)))
+     return -1;
+
+  sz = PGROUNDUP(sz);
+
+  struct proc* p = myproc();
+
+  if(addr == 0) {
+    p->mmapstart -= PGROUNDUP(sz);
+    for(int i = 0; i < 16; i++) {
+      struct vma* v = &p->vmas[i];
+      if(v->sz == 0) {
+        v->start = (void*)p->mmapstart;
+        v->sz = sz;
+        v->file = f;
+        v->flags = flags;
+        v->offset = offset;
+        v->prot = prot;
+        break;
+      } else if((uint64)v->start <= p->mmapstart) {
+        v->start = (void*)(v->start - sz);      // 向下扩展大小
+        break;
+      }
+    }
+  }
+  
+  filedup(f);
+  return p->mmapstart;
+}
+
+uint64 sys_munmap(void)
+{
+  uint64 va;
+  uint64 length;
+  struct proc *p = myproc();
+  if(argaddr(0, &va) < 0 || argaddr(1, &length) < 0)
+    return -1;
+  if(PGROUNDDOWN(va) != va) {
+    printf("not support not PGROUNDDOWN va\n");
+    return -1;
+  }
+  // 寻找 对应的 vma
+  struct vma *v = 0;
+  for(int i = 0; i < 16; i++) {
+    v = &p->vmas[i];
+    if(v->sz && va >= (uint64)v->start && va < (uint64)v->start + v->sz) {
+      break;
+    }
+  }
+  if(v == 0) 
+    return -1;
+
+  if(v == 0) {
+    printf("sys_munmap : error va %lld\n", va);
+    return 1;
+  }
+
+  if(va > (uint64)v->start && va + length < (uint64)v->start + v->sz) {
+    // trying to "dig a hole" inside the memory range.
+    return -1;
+  }
+  vmaunmap(p->pagetable, va, length, v);
+
+  // 向右移动起点
+  if((uint64)v->start == PGROUNDDOWN(va)) {
+    v->start = (char*)PGROUNDUP(va + length);
+  }
+  int sz = PGROUNDUP(va + length) - PGROUNDDOWN(va);
+  //printf("--LOG munmap length %d se: %d    new: %d\n", vma->sz, sz, vma->sz - sz);
+  v->sz -= sz;
+  // 清楚映射
+  if(v->sz <= 0) {
+    fileclose(v->file);
+    printf("--LOG munmap length %d\n", v->sz);
+    v->sz = 0;
+  }
+  return 0;
+}

@@ -5,6 +5,11 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "sleeplock.h"
+#include "file.h"
+#include "fcntl.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -427,5 +432,100 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return 0;
   } else {
     return -1;
+  }
+}
+
+int is_mmap(uint64 va) {
+  struct proc* p = myproc();
+  if(va >= p->mmapstart && va < TRAMPOLINE) {
+    return 1;
+  } 
+  return 0;
+}
+
+int handle_mmap(struct proc* p, uint64 va) {
+  va = PGROUNDDOWN(va);
+  if(va < p->sz) return 0;
+
+  // 寻找对应的vma
+  struct vma* v;
+  for(int i = 0; i < 16; i++) {
+    v = &p->vmas[i];
+    if(v->sz && va >= (uint64)v->start && va < (uint64)v->start + v->sz) {
+      break;
+    }
+  }
+  if(v == 0) return 0;
+
+  // 分配新的内存页
+  char* mem = kalloc();
+  if(mem == 0)
+  {
+    panic("handle_mmap : mem == 0");
+  } else {
+    memset((void*)mem, 0, PGSIZE);
+
+    // 将文件读取到内存中
+    begin_op();
+    ilock(v->file->ip);
+    readi(v->file->ip, 0, (uint64)mem, v->offset + va - (uint64)v->start, PGSIZE);
+    iunlock(v->file->ip);
+    end_op();
+
+    // 设置权限
+    int prot = PTE_U;
+    if(v->prot & PROT_READ) {
+      prot |= PTE_R;
+    }
+    if(v->prot & PROT_WRITE) {
+      prot |= PTE_W;
+    }
+
+    // 映射
+    if(mappages(p->pagetable, va, PGSIZE, (uint64)mem, prot) != 0)
+    {
+      kfree((void*)mem);
+      panic("handle_mmap : mappages == -1");
+    }
+    return 1;
+  }
+  return 0;
+}
+
+// 取消vma的映射
+void
+vmaunmap(pagetable_t pagetable, uint64 va, uint64 nbytes, struct vma* v)
+{
+  uint64 a;
+  pte_t *pte;
+
+  if((va % PGSIZE) != 0)
+    panic("vmaunmap: not aligned");
+
+  for(a = va; a < va + nbytes; a += PGSIZE){
+    if((pte = walk(pagetable, a, 0)) == 0)
+      continue;
+    if(PTE_FLAGS(*pte) == PTE_V)
+      panic("uvmunmap: not a leaf");
+    if(*pte & PTE_V){
+      uint64 pa = PTE2PA(*pte);
+      // 映射的页面已被修改(PTE_D)，并且文件已映射到MAP_SHARED，将页面写回该文件
+      if((*pte & PTE_D) && (v->flags & MAP_SHARED)) {
+        begin_op();
+        ilock(v->file->ip);
+        uint64 off = a - (uint64)v->start;
+        if(off < 0) {
+          writei(v->file->ip, 0, pa - off, v->offset, PGSIZE + off);
+        } else if(off + PGSIZE > v->sz) {
+          writei(v->file->ip, 0, pa, v->offset + off, v->sz - off);
+        } else {
+          writei(v->file->ip, 0, pa, v->offset + off, PGSIZE);
+        }
+        iunlock(v->file->ip);
+        end_op();
+      }
+      kfree((void*)pa);
+      *pte = 0;
+    }
   }
 }

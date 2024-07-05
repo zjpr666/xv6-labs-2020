@@ -82,6 +82,16 @@ struct trapframe {
 
 enum procstate { UNUSED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+// VMA（虚拟内存区域）对应的结构体
+struct vma {
+  void* start;                // 虚拟内存范围的起始地址 通常设为 NULL，代表让系统自动选定地址，映射成功后返回该地址
+  uint64 sz;                  // 长度
+  int prot;                   // 权限 PROT_READ or PROT_WRITE
+  int flags;                  // 映射区域的写入操作是否会复制回文件内
+  struct file* file;          // 指向的文件对象
+  uint64 offset;              // 文件映射的偏移量，通常设置为0
+};
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -103,4 +113,6 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  struct vma vmas[16];
+  uint64 mmapstart;            // mmap从上向下增长
 };

@@ -133,7 +133,7 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
-
+  p->mmapstart = (uint64)p->trapframe;
   return p;
 }
 
@@ -146,6 +146,14 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+
+  // 释放进程需要把vmas表释放掉
+  for(int i = 0; i < 16; i++) {
+    struct vma* v = &p->vmas[i];
+    if(v->sz) {
+      vmaunmap(p->pagetable, (uint64)v->start, v->sz, v);
+    }
+  }
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -157,6 +165,7 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  p->mmapstart = 0;
 }
 
 // Create a user page table for a given process,
@@ -296,6 +305,14 @@ fork(void)
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
 
+  for(i = 0; i < 16; i++) {
+    struct vma* v = &p->vmas[i];
+    if(v->sz) {
+      np->vmas[i] = *v;
+      filedup(v->file);
+    }
+  }
+  np->mmapstart = p->mmapstart;
   safestrcpy(np->name, p->name, sizeof(p->name));
 
   pid = np->pid;
