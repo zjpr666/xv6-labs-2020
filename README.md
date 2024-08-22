@@ -1,179 +1,45 @@
-# sleep
-1. 修改Makefile文件
-```c
-UPROGS=\
-    ... 
-    $U/_sleep\		//add
-```
+xv6 is a re-implementation of Dennis Ritchie's and Ken Thompson's Unix
+Version 6 (v6).  xv6 loosely follows the structure and style of v6,
+but is implemented for a modern RISC-V multiprocessor using ANSI C.
 
-2. 添加user/sleep.c文件
-```c
-#include "user.h"
-#include "kernel/types.h"
+ACKNOWLEDGMENTS
 
-int main(int argc, char* const argv[])
-{
-    if(argc != 2)
-    {
-        fprintf(2,"usage: sleep <time>\n");
-        exit(1);
-    }
-    sleep(atoi(argv[1]));
-    exit(0);
-}
-```
-```c
-int atoi(const char* s)
-{
-    int n = 0;
-    while('0' <= *s && *s <= '9')
-    {
-        n = n * 10 + (*s++ - '0');
-    }
-    return n;
-}
-```
-# pingpong
+xv6 is inspired by John Lions's Commentary on UNIX 6th Edition (Peer
+to Peer Communications; ISBN: 1-57398-013-7; 1st edition (June 14,
+2000)). See also https://pdos.csail.mit.edu/6.828/, which
+provides pointers to on-line resources for v6.
 
-1. 修改Makefile文件
-```c
-UPROGS=\
-    ... 
-    $U/_pingpong\		//add
-```
+The following people have made contributions: Russ Cox (context switching,
+locking), Cliff Frey (MP), Xiao Yu (MP), Nickolai Zeldovich, and Austin
+Clements.
 
-2. 添加user/pingpong.c文件
+We are also grateful for the bug reports and patches contributed by
+Silas Boyd-Wickizer, Anton Burtsev, Dan Cross, Cody Cutler, Mike CAT,
+Tej Chajed, Asami Doi, eyalz800, , Nelson Elhage, Saar Ettinger, Alice
+Ferrazzi, Nathaniel Filardo, Peter Froehlich, Yakir Goaron,Shivam
+Handa, Bryan Henry, jaichenhengjie, Jim Huang, Alexander Kapshuk,
+Anders Kaseorg, kehao95, Wolfgang Keller, Jonathan Kimmitt, Eddie
+Kohler, Austin Liew, Imbar Marinescu, Yandong Mao, Matan Shabtay,
+Hitoshi Mitake, Carmi Merimovich, Mark Morrissey, mtasm, Joel Nider,
+Greg Price, Ayan Shafqat, Eldar Sehayek, Yongming Shen, Fumiya
+Shigemitsu, Takahiro, Cam Tenny, tyfkda, Rafael Ubal, Warren Toomey,
+Stephen Tu, Pablo Ventura, Xi Wang, Keiichi Watanabe, Nicolas
+Wolovick, wxdao, Grant Wu, Jindong Zhang, Icenowy Zheng, and Zou Chang
+Wei.
 
-对于每一个进程来说都是只向另外一个管道write，自己只read另外一个管道
-```c
-#include "user.h"
-#include "kernel/types.h"
+The code in the files that constitute xv6 is
+Copyright 2006-2020 Frans Kaashoek, Robert Morris, and Russ Cox.
 
-int main()
-{
-    int p1[2];
-    int p2[2];
-    pipe(p1);
-    pipe(p2);
-    char byte = 'p';
-    int status;
-    if(fork() == 0)
-    {
-        close(p1[1]);
-        close(p2[0]);
-        read(p1[0], &byte, sizeof byte);
-        printf("%d: received ping\n", getpid());
-        write(p2[1], &byte, sizeof byte);
-    } else {
-        close(p1[0]);
-        close(p2[1]);
-        write(p1[1], &byte, sizeof byte);
-        read(p2[0], &byte, sizeof byte);
-        printf("%d: received pong\n", getpid());
-        wait(&status);
-    }
-    exit(0);
-}
-```
-# primes
+ERROR REPORTS
 
-1. 修改Makefile文件
-```c
-UPROGS=\
-    ... 
-    $U/_primes\		//add
-```
+Please send errors and suggestions to Frans Kaashoek and Robert Morris
+(kaashoek,rtm@mit.edu). The main purpose of xv6 is as a teaching
+operating system for MIT's 6.S081, so we are more interested in
+simplifications and clarifications than new features.
 
-2. 添加user/primes.c文件
-```c
-#include "user.h"
-#include "kernel/types.h"
+BUILDING AND RUNNING XV6
 
-void solve(int *p)
-{
-    /**
-     * 在子进程中不需要父进程的写端，关闭
-     * 判断父进程是否读完
-     * 没读完就创建字进程，递归处理，关闭子进程的写端和父进程的读端
-    */
-    //关闭父进程的写端
-    close(p[1]);
-    int prime = -1;
-    if(read(p[0], &prime, sizeof prime) == 0) return;
-    printf("prime %d\n", prime);
-    //创建子进程
-    int pr[2];
-    pipe(pr);
-    if(fork() == 0)
-    {
-        close(pr[1]);
-        close(p[0]);
-        solve(pr);
-        exit(0);
-    }
-    //父进程
-    close(pr[0]);
-    for(int i; read(p[0], &i, sizeof i) != 0;)
-    {
-        if(i % prime != 0)
-        {
-            write(pr[1], &i, sizeof i);
-        }
-    }
-    close(pr[1]);
-    wait(0);
-}
-
-int main(int argc, char* argv[])
-{
-    /**
-     * 父进程
-     *   创建第一个进程把所有的数据全都写到第一个管道里
-     *   关闭读取端p[0]
-     *   循环输入数据到写端p[1]
-     *   关闭写端
-     *   等待子进程结束
-     * 子进程
-     *   递归解决函数
-     * 退出exit
-     */
-    int p[2];
-    pipe(p);
-    if(fork() != 0)
-    {
-        close(p[0]);
-        for(int i = 2;i < 36;i++)
-        {
-            write(p[1], &i, sizeof i);
-        }
-        close(p[1]);
-
-        wait(0);
-    }
-    else
-    {
-        solve(p);
-    }
-    exit(0);
-}
-```
-# find
-
-1. 修改Makefile文件
-```c
-UPROGS=\
-    ... 
-    $U/_find\		//add
-```
-
-2. 添加user/find.c文件
-# xargs
-
-1. 修改Makefile文件
-```c
-UPROGS=\
-    ... 
-    $U/_xargs\		//add
-```
-
-2. 添加user/xargs.c文件
+You will need a RISC-V "newlib" tool chain from
+https://github.com/riscv/riscv-gnu-toolchain, and qemu compiled for
+riscv64-softmmu. Once they are installed, and in your shell
+search path, you can run "make qemu"
